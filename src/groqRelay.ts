@@ -33,7 +33,40 @@ export async function connectToGroq(): Promise<WebSocket> {
 }
 
 /**
- * Converte o áudio da Twilio (µ-law 8kHz) para PCM 16-bit linear e envia para a Groq
+ * Adiciona cabeçalho WAV para que o Groq aceite o buffer de áudio
+ */
+function addWavHeader(pcm: Int16Array, sampleRate = 8000): Buffer {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * bitsPerSample / 8;
+  const blockAlign = numChannels * bitsPerSample / 8;
+  const dataSize = pcm.length * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+
+  buffer.write('RIFF', 0); // ChunkID
+  buffer.writeUInt32LE(36 + dataSize, 4); // ChunkSize
+  buffer.write('WAVE', 8); // Format
+
+  buffer.write('fmt ', 12); // Subchunk1ID
+  buffer.writeUInt32LE(16, 16); // Subchunk1Size (16 para PCM)
+  buffer.writeUInt16LE(1, 20); // AudioFormat (1 = PCM)
+  buffer.writeUInt16LE(numChannels, 22); // NumChannels
+  buffer.writeUInt32LE(sampleRate, 24); // SampleRate
+  buffer.writeUInt32LE(byteRate, 28); // ByteRate
+  buffer.writeUInt16LE(blockAlign, 32); // BlockAlign
+  buffer.writeUInt16LE(bitsPerSample, 34); // BitsPerSample
+
+  buffer.write('data', 36); // Subchunk2ID
+  buffer.writeUInt32LE(dataSize, 40); // Subchunk2Size
+
+  const pcmBuffer = Buffer.from(pcm.buffer);
+  pcmBuffer.copy(buffer, 44);
+
+  return buffer;
+}
+
+/**
+ * Converte o áudio da Twilio (µ-law 8kHz) para WAV e envia para a Groq
  */
 export function sendToGroqAudio(groqSocket: WebSocket, base64Payload: string) {
   if (!groqSocket || groqSocket.readyState !== WebSocket.OPEN) {
@@ -43,10 +76,10 @@ export function sendToGroqAudio(groqSocket: WebSocket, base64Payload: string) {
 
   try {
     const ulawBuffer = Buffer.from(base64Payload, 'base64');
-    const pcmBuffer = decodeUlaw(ulawBuffer); // retorna Int16Array
+    const pcm = decodeUlaw(ulawBuffer); // retorna Int16Array
+    const wavBuffer = addWavHeader(pcm); // WAV com cabeçalho válido
 
-    // Envia como Buffer binário
-    groqSocket.send(Buffer.from(pcmBuffer.buffer));
+    groqSocket.send(wavBuffer);
   } catch (error) {
     console.error('❌ Erro ao converter e enviar áudio para Groq:', error);
   }

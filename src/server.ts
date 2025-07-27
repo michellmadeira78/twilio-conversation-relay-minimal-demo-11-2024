@@ -6,20 +6,20 @@ import WebSocket from 'ws';
 
 import { onMedia, saveRawAudio } from './audioCapture';
 import {
-  connectToGroq,
-  sendToGroqAudio,
-  handleGroqMessages,
-} from './groqRelay';
+  connectToDeepgram,
+  sendToDeepgram,
+  handleDeepgramMsgs,
+} from './deepgramRelay';          // ⬅️ novo relay
 
-const app = express();
+const app    = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server, path: '/relay' });
+const wss    = new WebSocket.Server({ server, path: '/relay' });
 
 wss.on('connection', (socket) => {
   console.log('🔌 Twilio WebSocket conectado');
 
   let currentCallSid = '';
-  let groqSocket: WebSocket | null = null;
+  let dgSocket: WebSocket | null = null;
 
   socket.on('message', async (data) => {
     try {
@@ -27,30 +27,33 @@ wss.on('connection', (socket) => {
       console.log('📨 Evento recebido:', msg.event);
 
       switch (msg.event) {
+        /* ------------------------- início da chamada ------------------------- */
         case 'start':
           currentCallSid = msg.start.callSid;
           console.log(`📞 Ligação iniciada: ${currentCallSid}`);
 
-          // Conecta com WebSocket da Groq e inicia listener
-          groqSocket = await connectToGroq();
-          handleGroqMessages(groqSocket, currentCallSid);
+          // conecta à Deepgram e começa a escutar as transcrições
+          dgSocket = connectToDeepgram();
+          handleDeepgramMsgs(dgSocket, currentCallSid);
           break;
 
+        /* -------------------------- pacotes de áudio -------------------------- */
         case 'media':
-          onMedia(msg.media.payload); // gravação local (ulaw)
-          if (groqSocket && groqSocket.readyState === WebSocket.OPEN) {
-            sendToGroqAudio(groqSocket, msg.media.payload);
+          onMedia(msg.media.payload);                          // grava .ulaw
+          if (dgSocket && dgSocket.readyState === WebSocket.OPEN) {
+            sendToDeepgram(dgSocket, msg.media.payload);      // envia à Deepgram
           }
           break;
 
+        /* ---------------------------- fim da call ---------------------------- */
         case 'stop':
           const path = saveRawAudio(currentCallSid);
           console.log(`✅ Ligação encerrada. Áudio bruto salvo em ${path}`);
           console.log(`🎧 Para converter: ffmpeg -f mulaw -ar 8000 -ac 1 -i ${path} ${path.replace('.ulaw', '.wav')}`);
 
-          if (groqSocket) {
-            groqSocket.close();
-            console.log('🛑 Conexão com Groq encerrada');
+          if (dgSocket) {
+            dgSocket.close();
+            console.log('🛑 Conexão com Deepgram encerrada');
           }
           break;
 
