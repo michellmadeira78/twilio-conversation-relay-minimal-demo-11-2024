@@ -1,79 +1,95 @@
-import fs from "fs";
-import path from "path";
+import fs   from 'fs';
+import path from 'path';
+import pino from 'pino';
 
-const COLORS = {
-  CLEAR: "\x1b[0m", // Clear
-  DEBUG: "\x1b[36m", // Cyan
-  INFO: "\x1b[37m", // White
-  ERROR: "\x1b[31m", // Red
-  SUCCESS: "\x1b[32m", // Green
-  WARN: "\x1b[33m", // Yellow
-} as const;
+/* ------------------------------------------------------------------ *
+ * Helpers de tempo
+ * ------------------------------------------------------------------ */
+let bootTs = Date.now();
 
-let start = Date.now();
-let logPath: string;
-let logStream: fs.WriteStream;
+function elapsed() {
+  const diff = Date.now() - bootTs;
+  const min  = Math.floor(diff / 6e4);
+  const sec  = Math.floor((diff % 6e4) / 1e3);
+  const ms   = diff % 1e3;
+  return `${String(min).padStart(3, '0')}m ${String(sec).padStart(2, '0')}s ${String(ms).padStart(3, '0')}ms`;
+}
 
+/* ------------------------------------------------------------------ *
+ * Destino de arquivo (.log)
+ * ------------------------------------------------------------------ */
+const LOG_DIR = path.join(__dirname, '..', 'logs');
+if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+
+const newFileDest = () =>
+  pino.destination({ dest: path.join(LOG_DIR, `session_${Date.now()}.log`), sync: false });
+
+/* ------------------------------------------------------------------ *
+ * Instância principal do Pino
+ * ------------------------------------------------------------------ */
+const logger = pino(
+  {
+    level: process.env.LOG_LEVEL || 'info',
+    customLevels: { success: 35 },               // INFO=30 < SUCCESS=35 < WARN=40
+    formatters: {
+      level(label) {
+        return { level: label };
+      },
+    },
+  },
+  pino.transport({
+    targets: [
+      {
+        target: 'pino-pretty',
+        level:  'debug',
+        options: {
+          translateTime: 'SYS:standard',
+          ignore:        'pid,hostname',
+          colorize:      true,
+          messageFormat: (_log: unknown, msg: string) => `${elapsed()} | ${msg}`,
+        },
+      },
+      {
+        target:  'pino/file',
+        level:   'debug',
+        options: { destination: newFileDest() },
+      },
+    ],
+  }),
+);
+
+/* ------------------------------------------------------------------ *
+ * API compatível com console.* antigos
+ * ------------------------------------------------------------------ */
+type Args = unknown[];
+const serialize = (args: Args) =>
+  args.map((m) => (typeof m === 'object' ? JSON.stringify(m, null, 2) : m)).join(' ');
+
+export const debug   = (...m: Args) => logger.debug(serialize(m));
+export const info    = (...m: Args) => logger.info(serialize(m));
+export const warn    = (...m: Args) => logger.warn(serialize(m));
+export const error   = (...m: Args) => logger.error(serialize(m));
+export const success = (...m: Args) =>
+  (logger as any).success?.(serialize(m)) ?? logger.info(serialize(m));
+
+/* ------------------------------------------------------------------ *
+ * reset() → zera cronômetro e cria novo arquivo de log
+ * ------------------------------------------------------------------ */
 export function reset() {
-  start = Date.now();
+  bootTs = Date.now();
 
-  const dt = new Date();
-  const dateStr = `${dt.getMonth() + 1}-${dt.getDate()}`;
-  const timeStr = `${dt.getHours().toString().padStart(2, "0")}:${dt
-    .getMinutes()
-    .toString()
-    .padStart(2, "0")}:${dt.getSeconds().toString().padStart(2, "0")}:${dt
-    .getMilliseconds()
-    .toString()
-    .padStart(3, "0")}`;
-  const dtStr = `${dateStr} ${timeStr}`;
+  const lg: any = logger;          // elide tipos para acessar internals
+  lg.flush?.();                    // garante flush do arquivo atual
 
-  logPath = path.join(__dirname, "../logs", `${dtStr}.txt`);
+  // substitui somente o stream de arquivo (2º target)
+  if (Array.isArray(lg.transport?.targets) && lg.transport.targets[1]) {
+    lg.transport.targets[1].stream = newFileDest();
+  }
 
-  if (!fs.existsSync(logPath))
-    fs.writeFileSync(logPath, `Log reset time: ${dtStr}\n\n`);
-
-  logStream = fs.createWriteStream(logPath, {});
+  info('🌀 Log resetado: nova sessão iniciada');
 }
 
-const getElapsed = () => {
-  const elapsed = Date.now() - start;
-  const min = Math.floor(elapsed / (60 * 1000));
-  const sec = Math.floor((elapsed % (60 * 1000)) / 1000);
-  const ms = elapsed % 1000;
-
-  return [
-    `${min.toString().padStart(3, "0")}m`,
-    `${sec.toString().padStart(2, "0")}s`,
-    `${ms.toString().padStart(3, "0")}ms`,
-  ].join(" ");
-};
-
-function log(level: keyof typeof COLORS, ...msgs: any[]) {
-  try {
-    const formattedMsg = msgs
-      .map((m) => (typeof m === "object" ? JSON.stringify(m, null, 2) : m))
-      .join(" ");
-    logStream.write(`${level} ${formattedMsg}\n`);
-  } catch (error) {}
-
-  const color = COLORS[level];
-
-  let _msgs = msgs.flatMap((msg) =>
-    (typeof msg === "object" && msg !== null) || Array.isArray(msg)
-      ? [COLORS.CLEAR, msg, color]
-      : String(msg)
-  );
-
-  console.log(
-    `${color}${level.padEnd(7, " ")} ${getElapsed()}`,
-    ..._msgs,
-    COLORS.CLEAR
-  );
-}
-
-export const debug = (...msg: any) => log("DEBUG", ...msg);
-export const error = (...msg: any) => log("ERROR", ...msg);
-export const info = (...msg: any) => log("INFO", ...msg);
-export const success = (...msg: any) => log("SUCCESS", ...msg);
-export const warn = (...msg: any) => log("WARN", ...msg);
+/* ------------------------------------------------------------------ *
+ * Export opcional do logger bruto (caso precise em outros módulos)
+ * ------------------------------------------------------------------ */
+export { logger };

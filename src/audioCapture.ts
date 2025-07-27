@@ -1,24 +1,46 @@
 import fs from 'fs';
 import path from 'path';
+import { debug, info, warn } from './logger';           // <<< novo logger
 
-let audioBuffers: Buffer[] = [];
+// Map para buffers de áudio por ligação ➜ permite tratar várias chamadas em paralelo
+const callBuffers: Record<string, Buffer[]> = {};
 
-export function onMedia(payloadBase64: string) {
-  const buffer = Buffer.from(payloadBase64, 'base64');
-  audioBuffers.push(buffer);
+/** ------------------------------------------------------------------------
+ *  Acionado pelo webhook da Twilio (evento “media”)
+ *  --------------------------------------------------------------------- **/
+export function onMedia(callSid: string, payloadBase64: string) {
+  if (!callBuffers[callSid]) callBuffers[callSid] = [];
+
+  const chunk = Buffer.from(payloadBase64, 'base64');
+  callBuffers[callSid].push(chunk);
+
+  debug({ callSid, bytes: chunk.length }, '🎙️  Chunk recebido');
 }
 
+/** ------------------------------------------------------------------------
+ *  Concatena e grava o .ulaw em disco
+ *  --------------------------------------------------------------------- **/
 export function saveRawAudio(callSid: string): string {
-  const raw = Buffer.concat(audioBuffers);
+  const buffers = callBuffers[callSid] ?? [];
+
+  if (!buffers.length) {
+    warn({ callSid }, '⚠️  Nenhum buffer para gravar');
+    return '';
+  }
+
+  const raw = Buffer.concat(buffers);
   const outputDir = path.resolve(__dirname, '..', 'calls');
-  const rawPath = path.join(outputDir, `call-${callSid}.ulaw`);
+  const rawPath   = path.join(outputDir, `call-${callSid}.ulaw`);
 
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
-
+  fs.mkdirSync(outputDir, { recursive: true });
   fs.writeFileSync(rawPath, raw);
-  console.log(`📝 Áudio salvo como: ${rawPath}`);
 
-  // limpa buffer para próxima chamada
-  audioBuffers = [];
+  info(
+    { callSid, rawPath, bytes: raw.length },
+    '📝 Áudio (.ulaw) salvo'
+  );
+
+  // limpa buffers apenas desta ligação
+  delete callBuffers[callSid];
   return rawPath;
 }

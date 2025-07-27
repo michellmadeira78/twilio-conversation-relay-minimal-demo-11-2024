@@ -1,76 +1,84 @@
-// src/server.ts
+import http            from 'http';
+import express         from 'express';
+import WebSocket       from 'ws';
 
-import http from 'http';
-import express from 'express';
-import WebSocket from 'ws';
-
-import { onMedia, saveRawAudio } from './audioCapture';
+import { onMedia, saveRawAudio }  from './audioCapture';
 import {
   connectToDeepgram,
   sendToDeepgram,
   handleDeepgramMsgs,
-} from './deepgramRelay';          // ⬅️ novo relay
+} from './deepgram';                       // ← nome do arquivo refatorado
+import { info, debug, warn, error, success, reset } from './logger';
 
+/** ------------------------------------------------------------------------
+ *  Bootstrap
+ *  --------------------------------------------------------------------- **/
 const app    = express();
 const server = http.createServer(app);
 const wss    = new WebSocket.Server({ server, path: '/relay' });
 
+/** ------------------------------------------------------------------------
+ *  Conexões WebSocket – Twilio ➜ Nosso servidor
+ *  --------------------------------------------------------------------- **/
 wss.on('connection', (socket) => {
-  console.log('🔌 Twilio WebSocket conectado');
+  info('🔌 Twilio WebSocket conectado');
 
-  let currentCallSid = '';
-  let dgSocket: WebSocket | null = null;
+  let callSid = '';
+  let dgSocket: WebSocket | undefined;
 
-  socket.on('message', async (data) => {
+  socket.on('message', (data) => {
     try {
       const msg = JSON.parse(data.toString());
-      console.log('📨 Evento recebido:', msg.event);
+      debug({ event: msg.event }, '📨 Evento recebido');
 
       switch (msg.event) {
-        /* ------------------------- início da chamada ------------------------- */
-        case 'start':
-          currentCallSid = msg.start.callSid;
-          console.log(`📞 Ligação iniciada: ${currentCallSid}`);
+        /* ------------------------- início da chamada --------------------- */
+        case 'start': {
+          reset();                                    // novo arquivo de log
+          callSid = msg.start.callSid;
+          info({ callSid }, '📞 Ligação iniciada');
 
-          // conecta à Deepgram e começa a escutar as transcrições
           dgSocket = connectToDeepgram();
-          handleDeepgramMsgs(dgSocket, currentCallSid);
+          handleDeepgramMsgs(dgSocket, callSid);
           break;
+        }
 
-        /* -------------------------- pacotes de áudio -------------------------- */
-        case 'media':
-          onMedia(msg.media.payload);                          // grava .ulaw
-          if (dgSocket && dgSocket.readyState === WebSocket.OPEN) {
-            sendToDeepgram(dgSocket, msg.media.payload);      // envia à Deepgram
-          }
+        /* -------------------------- pacotes de áudio -------------------- */
+        case 'media': {
+          onMedia(callSid, msg.media.payload);        // grava ULaw local
+          sendToDeepgram(dgSocket, msg.media.payload);
           break;
+        }
 
-        /* ---------------------------- fim da call ---------------------------- */
-        case 'stop':
-          const path = saveRawAudio(currentCallSid);
-          console.log(`✅ Ligação encerrada. Áudio bruto salvo em ${path}`);
-          console.log(`🎧 Para converter: ffmpeg -f mulaw -ar 8000 -ac 1 -i ${path} ${path.replace('.ulaw', '.wav')}`);
+        /* --------------------------- fim da call ------------------------ */
+        case 'stop': {
+          const rawPath = saveRawAudio(callSid);
+          success({ rawPath }, '✅ Ligação encerrada — áudio salvo');
 
           if (dgSocket) {
             dgSocket.close();
-            console.log('🛑 Conexão com Deepgram encerrada');
+            debug('🛑 Deepgram socket fechado');
           }
           break;
+        }
 
         default:
-          console.warn(`⚠️ Evento desconhecido: ${msg.event}`);
+          warn({ event: msg.event }, '⚠️  Evento desconhecido');
       }
     } catch (err) {
-      console.error('❌ Erro ao processar mensagem da Twilio:', err);
+      error({ err }, '❌ Erro ao processar mensagem da Twilio');
     }
   });
 
   socket.on('close', () => {
-    console.log('🔴 Conexão com Twilio encerrada');
+    warn('🔴 Conexão com Twilio encerrada');
   });
 });
 
-const PORT = process.env.PORT || 8080;
+/** ------------------------------------------------------------------------
+ *  HTTP + WS listener
+ *  --------------------------------------------------------------------- **/
+const PORT = Number(process.env.PORT) || 8080;
 server.listen(PORT, () => {
-  console.log(`🟢 Servidor WebSocket ouvindo na porta ${PORT}`);
+  info(`🟢 Servidor WebSocket ouvindo na porta ${PORT}`);
 });
