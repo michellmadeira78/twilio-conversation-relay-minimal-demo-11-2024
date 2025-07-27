@@ -15,7 +15,6 @@
     "node-color-log": "^12.0.1",
     "openai": "^4.68.4",
     "twilio": "^5.3.5",
-    "ulaw-js": "git+https://github.com/davedoesdev/ulaw-js.git",
     "ws": "^8.18.0"
   },
   "devDependencies": {
