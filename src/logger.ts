@@ -6,17 +6,16 @@ import pino from 'pino';
  * Helpers de tempo
  * ------------------------------------------------------------------ */
 let bootTs = Date.now();
-
-function elapsed() {
-  const diff = Date.now() - bootTs;
-  const min  = Math.floor(diff / 6e4);
-  const sec  = Math.floor((diff % 6e4) / 1e3);
-  const ms   = diff % 1e3;
-  return `${String(min).padStart(3, '0')}m ${String(sec).padStart(2, '0')}s ${String(ms).padStart(3, '0')}ms`;
-}
+const elapsed = (): string => {
+  const d  = Date.now() - bootTs;
+  const mm = Math.floor(d / 6e4);
+  const ss = Math.floor((d % 6e4) / 1e3);
+  const ms = d % 1e3;
+  return `${String(mm).padStart(3, '0')}m ${String(ss).padStart(2, '0')}s ${String(ms).padStart(3, '0')}ms`;
+};
 
 /* ------------------------------------------------------------------ *
- * Destino de arquivo (.log) — **sync:true** evita erro SonicBoom
+ * Destino de arquivo (.log) – sync:true evita SonicBoom crash
  * ------------------------------------------------------------------ */
 const LOG_DIR = path.join(__dirname, '..', 'logs');
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -24,7 +23,7 @@ if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 const newFileDest = () =>
   pino.destination({
     dest: path.join(LOG_DIR, `session_${Date.now()}.log`),
-    sync: true,                        // síncrono ⇒ flushSync seguro
+    sync: true,
   });
 
 /* ------------------------------------------------------------------ *
@@ -33,12 +32,8 @@ const newFileDest = () =>
 const logger = pino(
   {
     level: process.env.LOG_LEVEL || 'info',
-    customLevels: { success: 35 },               // INFO=30 < SUCCESS=35 < WARN=40
-    formatters: {
-      level(label) {
-        return { level: label };
-      },
-    },
+    customLevels: { success: 35 },            // INFO=30 < SUCCESS=35 < WARN=40
+    formatters: { level: l => ({ level: l }) },
   },
   pino.transport({
     targets: [
@@ -49,13 +44,15 @@ const logger = pino(
           translateTime: 'SYS:standard',
           ignore:        'pid,hostname',
           colorize:      true,
-          messageFormat: (_log: unknown, msg: string) => `${elapsed()} | ${msg}`,
+          messageFormat: (_: unknown, msg: string) => `${elapsed()} | ${msg}`,
         },
+        worker: { enabled: false } as any,    // ✨ evita DataCloneError
       },
       {
         target:  'pino/file',
         level:   'debug',
         options: { destination: newFileDest() },
+        worker:  { enabled: false } as any,   // ✨ idem
       },
     ],
   }),
@@ -65,32 +62,29 @@ const logger = pino(
  * API compatível com console.* antigos
  * ------------------------------------------------------------------ */
 type Args = unknown[];
-const serialize = (args: Args) =>
-  args.map((m) => (typeof m === 'object' ? JSON.stringify(m, null, 2) : m)).join(' ');
+const ser = (a: Args) =>
+  a.map(m => (typeof m === 'object' ? JSON.stringify(m, null, 2) : m)).join(' ');
 
-export const debug   = (...m: Args) => logger.debug(serialize(m));
-export const info    = (...m: Args) => logger.info(serialize(m));
-export const warn    = (...m: Args) => logger.warn(serialize(m));
-export const error   = (...m: Args) => logger.error(serialize(m));
+export const debug   = (...m: Args) => logger.debug (ser(m));
+export const info    = (...m: Args) => logger.info  (ser(m));
+export const warn    = (...m: Args) => logger.warn  (ser(m));
+export const error   = (...m: Args) => logger.error (ser(m));
 export const success = (...m: Args) =>
-  (logger as any).success?.(serialize(m)) ?? logger.info(serialize(m));
+  (logger as any).success?.(ser(m)) ?? logger.info(ser(m));
 
 /* ------------------------------------------------------------------ *
- * reset() → zera cronômetro e cria novo arquivo de log
+ * reset() → zera cronômetro e inicia novo arquivo de log
  * ------------------------------------------------------------------ */
-export function reset() {
+export function reset(): void {
   bootTs = Date.now();
 
-  // substitui somente o stream de arquivo (2º target)
   const lg: any = logger;
   if (Array.isArray(lg.transport?.targets) && lg.transport.targets[1]) {
-    lg.transport.targets[1].stream = newFileDest();
+    lg.transport.targets[1].stream = newFileDest(); // novo arquivo
   }
 
   info('🌀 Log resetado: nova sessão iniciada');
 }
 
-/* ------------------------------------------------------------------ *
- * Export opcional do logger bruto (caso precise em outros módulos)
- * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
 export { logger };
