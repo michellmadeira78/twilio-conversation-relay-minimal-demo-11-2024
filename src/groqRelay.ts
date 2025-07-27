@@ -1,3 +1,5 @@
+// src/groqRelay.ts
+
 import WebSocket from 'ws';
 import { Buffer } from 'buffer';
 import ulaw from 'ulaw-js';
@@ -39,7 +41,11 @@ export function sendToGroqAudio(groqSocket: WebSocket, base64Payload: string) {
   const ulawBuffer = Buffer.from(base64Payload, 'base64');
   const pcmBuffer = ulaw.decode(ulawBuffer); // retorna Int16Array
 
-  // Envia como Buffer binário
+  if (!groqSocket || groqSocket.readyState !== WebSocket.OPEN) {
+    console.warn('⚠️ WebSocket da Groq não está aberto');
+    return;
+  }
+
   groqSocket.send(Buffer.from(pcmBuffer.buffer));
 }
 
