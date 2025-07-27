@@ -2,7 +2,7 @@
 
 import WebSocket from 'ws';
 import { Buffer } from 'buffer';
-import ulaw from 'ulaw-js';
+import { decode } from 'mulaw-js';
 
 const GROQ_WS_URL = 'wss://whisper.groq.com/v1/audio/stream';
 const GROQ_API_KEY = process.env.GROQ_API_KEY || ''; // defina via .env ou Railway secrets
@@ -39,7 +39,7 @@ export async function connectToGroq(): Promise<WebSocket> {
  */
 export function sendToGroqAudio(groqSocket: WebSocket, base64Payload: string) {
   const ulawBuffer = Buffer.from(base64Payload, 'base64');
-  const pcmBuffer = ulaw.decode(ulawBuffer); // retorna Int16Array
+  const pcmBuffer = decode(ulawBuffer); // ainda retorna Int16Array
 
   if (!groqSocket || groqSocket.readyState !== WebSocket.OPEN) {
     console.warn('⚠️ WebSocket da Groq não está aberto');
