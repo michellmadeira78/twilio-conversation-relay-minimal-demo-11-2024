@@ -15,7 +15,7 @@ const elapsed = (): string => {
 };
 
 /* ------------------------------------------------------------------ *
- * Destino de arquivo (.log) – sync:true evita SonicBoom crash
+ * Destino de arquivo (sync:true ⇒ sem SonicBoom crash)
  * ------------------------------------------------------------------ */
 const LOG_DIR = path.join(__dirname, '..', 'logs');
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -32,7 +32,7 @@ const newFileDest = () =>
 const logger = pino(
   {
     level: process.env.LOG_LEVEL || 'info',
-    customLevels: { success: 35 },            // INFO=30 < SUCCESS=35 < WARN=40
+    customLevels: { success: 35 },
     formatters: { level: l => ({ level: l }) },
   },
   pino.transport({
@@ -44,15 +44,14 @@ const logger = pino(
           translateTime: 'SYS:standard',
           ignore:        'pid,hostname',
           colorize:      true,
-          messageFormat: (_: unknown, msg: string) => `${elapsed()} | ${msg}`,
         },
-        worker: { enabled: false } as any,    // ✨ evita DataCloneError
+        worker: { enabled: false } as any,   // desativa thread
       },
       {
         target:  'pino/file',
         level:   'debug',
         options: { destination: newFileDest() },
-        worker:  { enabled: false } as any,   // ✨ idem
+        worker:  { enabled: false } as any,
       },
     ],
   }),
@@ -62,15 +61,17 @@ const logger = pino(
  * API compatível com console.* antigos
  * ------------------------------------------------------------------ */
 type Args = unknown[];
-const ser = (a: Args) =>
-  a.map(m => (typeof m === 'object' ? JSON.stringify(m, null, 2) : m)).join(' ');
+const stringify = (args: Args) =>
+  args.map(m => (typeof m === 'object' ? JSON.stringify(m, null, 2) : String(m))).join(' ');
 
-export const debug   = (...m: Args) => logger.debug (ser(m));
-export const info    = (...m: Args) => logger.info  (ser(m));
-export const warn    = (...m: Args) => logger.warn  (ser(m));
-export const error   = (...m: Args) => logger.error (ser(m));
+const wrap = (args: Args) => `${elapsed()} | ${stringify(args)}`;
+
+export const debug   = (...m: Args) => logger.debug (wrap(m));
+export const info    = (...m: Args) => logger.info  (wrap(m));
+export const warn    = (...m: Args) => logger.warn  (wrap(m));
+export const error   = (...m: Args) => logger.error (wrap(m));
 export const success = (...m: Args) =>
-  (logger as any).success?.(ser(m)) ?? logger.info(ser(m));
+  (logger as any).success?.(wrap(m)) ?? logger.info(wrap(m));
 
 /* ------------------------------------------------------------------ *
  * reset() → zera cronômetro e inicia novo arquivo de log
@@ -80,7 +81,7 @@ export function reset(): void {
 
   const lg: any = logger;
   if (Array.isArray(lg.transport?.targets) && lg.transport.targets[1]) {
-    lg.transport.targets[1].stream = newFileDest(); // novo arquivo
+    lg.transport.targets[1].stream = newFileDest();   // novo arquivo
   }
 
   info('🌀 Log resetado: nova sessão iniciada');
