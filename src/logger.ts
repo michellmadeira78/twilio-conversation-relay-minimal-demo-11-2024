@@ -16,13 +16,16 @@ function elapsed() {
 }
 
 /* ------------------------------------------------------------------ *
- * Destino de arquivo (.log)
+ * Destino de arquivo (.log) — **sync:true** evita erro SonicBoom
  * ------------------------------------------------------------------ */
 const LOG_DIR = path.join(__dirname, '..', 'logs');
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 
 const newFileDest = () =>
-  pino.destination({ dest: path.join(LOG_DIR, `session_${Date.now()}.log`), sync: false });
+  pino.destination({
+    dest: path.join(LOG_DIR, `session_${Date.now()}.log`),
+    sync: true,                        // síncrono ⇒ flushSync seguro
+  });
 
 /* ------------------------------------------------------------------ *
  * Instância principal do Pino
@@ -78,10 +81,8 @@ export const success = (...m: Args) =>
 export function reset() {
   bootTs = Date.now();
 
-  const lg: any = logger;          // elide tipos para acessar internals
-  lg.flush?.();                    // garante flush do arquivo atual
-
   // substitui somente o stream de arquivo (2º target)
+  const lg: any = logger;
   if (Array.isArray(lg.transport?.targets) && lg.transport.targets[1]) {
     lg.transport.targets[1].stream = newFileDest();
   }
