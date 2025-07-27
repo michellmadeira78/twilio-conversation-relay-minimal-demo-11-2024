@@ -1,5 +1,10 @@
-import dotenv from "dotenv-flow";
-import twilio from "twilio";
+/**
+ * Versão enxuta para o demo “eco”.
+ * – Remove dependência do SDK oficial `twilio`
+ * – Mantém mesmas funções públicas para não quebrar imports
+ * – As ações que chamavam a API agora apenas fazem log
+ */
+
 import type { WebSocket } from "ws";
 import * as log from "./logger";
 import {
@@ -9,46 +14,46 @@ import {
   TwilioRelayMessageTypes,
 } from "./twilio-types";
 
-dotenv.config();
-const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN } = process.env;
-export const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+/* ------------------------------------------------------------------ */
+/* 1. Variáveis de sessão (um único call/WS por vez – como no template)*/
+/* ------------------------------------------------------------------ */
 
-// this demo only supports one call at a time hence some variables are global
 export let callSid: string | undefined;
 export const setCallSid = (sid: string) => (callSid = sid);
 
-export let ws: WebSocket | undefined; // conversation relay websocket
+export let ws: WebSocket | undefined; // ConversationRelay WebSocket
 export const setWs = (wss: WebSocket) => (ws = wss);
 
 export function reset() {
   callSid = undefined;
-
   ws?.close();
   ws?.on("close", () => (ws = undefined));
 }
 
-/****************************************************
- Conversation Relay Actions
-****************************************************/
-export function endSession(handoffData: {}) {
+/* ------------------------------------------------------------------ */
+/* 2.  ConversationRelay – enviar comandos “end” e “text”             */
+/* ------------------------------------------------------------------ */
+
+export function endSession(handoffData: Record<string, unknown> = {}) {
   const action: EndSession = {
     type: "end",
     handoffData: JSON.stringify(handoffData),
   };
-
   ws?.send(JSON.stringify(action));
 }
 
-export function textToSpeech(token: string, last: boolean = false) {
+export function textToSpeech(token: string, last = false) {
   const action: SendTextToken = { type: "text", token, last };
   ws?.send(JSON.stringify(action));
 }
-/****************************************************
- Conversation Relay Message Listener
-****************************************************/
+
+/* ------------------------------------------------------------------ */
+/* 3.  Listener auxiliar para receber mensagens do Relay               */
+/* ------------------------------------------------------------------ */
+
 export function onMessage<T extends TwilioRelayMessageTypes>(
   type: T,
-  callback: (message: TwilioRelayMessage & { type: T }) => void
+  callback: (msg: TwilioRelayMessage & { type: T }) => void
 ) {
   ws?.on("message", (data) => {
     const msg = JSON.parse(data.toString()) as TwilioRelayMessage;
@@ -56,17 +61,12 @@ export function onMessage<T extends TwilioRelayMessageTypes>(
   });
 }
 
-/****************************************************
- Call Actions
-****************************************************/
+/* ------------------------------------------------------------------ */
+/* 4.  Stub de gravação de chamada – só faz log                       */
+/* ------------------------------------------------------------------ */
+
 export async function startCallRecording() {
-  const rec = await client.calls(callSid as string).recordings.create();
-
-  if (rec.errorCode)
-    return log.error(
-      `could not start call recording, error code ${rec.errorCode}`
-    );
-
-  const mediaUrl = `https://api.twilio.com${rec.uri.replace(".json", "")}`;
-  log.success(`started call recording\n${mediaUrl}`);
+  log.info(
+    `startCallRecording() chamado – SDK Twilio removido nesta versão demo; nenhuma gravação iniciada.`
+  );
 }
