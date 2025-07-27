@@ -1,8 +1,15 @@
+// src/server.ts
+
 import http from 'http';
 import express from 'express';
 import WebSocket from 'ws';
+
 import { onMedia, saveRawAudio } from './audioCapture';
-import { connectToGroq, sendToGroqAudio, handleGroqMessages } from './groqRelay';
+import {
+  connectToGroq,
+  sendToGroqAudio,
+  handleGroqMessages,
+} from './groqRelay';
 
 const app = express();
 const server = http.createServer(app);
@@ -19,31 +26,36 @@ wss.on('connection', (socket) => {
       const msg = JSON.parse(data.toString());
       console.log('📨 Evento recebido:', msg.event);
 
-      if (msg.event === 'start') {
-        currentCallSid = msg.start.callSid;
-        console.log(`📞 Ligação iniciada: ${currentCallSid}`);
+      switch (msg.event) {
+        case 'start':
+          currentCallSid = msg.start.callSid;
+          console.log(`📞 Ligação iniciada: ${currentCallSid}`);
 
-        // 👉 Conecta com Groq WebSocket
-        groqSocket = await connectToGroq();
-        handleGroqMessages(groqSocket, currentCallSid);
-      }
+          // Conecta com WebSocket da Groq e inicia listener
+          groqSocket = await connectToGroq();
+          handleGroqMessages(groqSocket, currentCallSid);
+          break;
 
-      if (msg.event === 'media') {
-        onMedia(msg.media.payload); // mantemos também a gravação em .ulaw
-        if (groqSocket) {
-          sendToGroqAudio(groqSocket, msg.media.payload);
-        }
-      }
+        case 'media':
+          onMedia(msg.media.payload); // gravação local (ulaw)
+          if (groqSocket && groqSocket.readyState === WebSocket.OPEN) {
+            sendToGroqAudio(groqSocket, msg.media.payload);
+          }
+          break;
 
-      if (msg.event === 'stop') {
-        const path = saveRawAudio(currentCallSid);
-        console.log(`✅ Ligação encerrada. Áudio bruto salvo em ${path}`);
-        console.log(`🎧 Para converter: ffmpeg -f mulaw -ar 8000 -ac 1 -i ${path} ${path.replace('.ulaw', '.wav')}`);
-        
-        if (groqSocket) {
-          groqSocket.close();
-          console.log('🛑 Conexão com Groq encerrada');
-        }
+        case 'stop':
+          const path = saveRawAudio(currentCallSid);
+          console.log(`✅ Ligação encerrada. Áudio bruto salvo em ${path}`);
+          console.log(`🎧 Para converter: ffmpeg -f mulaw -ar 8000 -ac 1 -i ${path} ${path.replace('.ulaw', '.wav')}`);
+
+          if (groqSocket) {
+            groqSocket.close();
+            console.log('🛑 Conexão com Groq encerrada');
+          }
+          break;
+
+        default:
+          console.warn(`⚠️ Evento desconhecido: ${msg.event}`);
       }
     } catch (err) {
       console.error('❌ Erro ao processar mensagem da Twilio:', err);
