@@ -1,5 +1,3 @@
-// src/groqRelay.ts
-
 import WebSocket from 'ws';
 import { Buffer } from 'buffer';
 import { decodeUlaw } from './ulaw';
@@ -38,14 +36,20 @@ export async function connectToGroq(): Promise<WebSocket> {
  * Converte o áudio da Twilio (µ-law 8kHz) para PCM 16-bit linear e envia para a Groq
  */
 export function sendToGroqAudio(groqSocket: WebSocket, base64Payload: string) {
-  const pcmBuffer = decodeUlaw(ulawBuffer);
-
   if (!groqSocket || groqSocket.readyState !== WebSocket.OPEN) {
     console.warn('⚠️ WebSocket da Groq não está aberto');
     return;
   }
 
-  groqSocket.send(Buffer.from(pcmBuffer.buffer));
+  try {
+    const ulawBuffer = Buffer.from(base64Payload, 'base64');
+    const pcmBuffer = decodeUlaw(ulawBuffer); // retorna Int16Array
+
+    // Envia como Buffer binário
+    groqSocket.send(Buffer.from(pcmBuffer.buffer));
+  } catch (error) {
+    console.error('❌ Erro ao converter e enviar áudio para Groq:', error);
+  }
 }
 
 /**

@@ -3,9 +3,10 @@
   "name": "twilio-conversation-relay-beta",
   "version": "1.0.0",
   "scripts": {
-    "dev": "nodemon --exec 'ts-node src/app.ts' --ext 'ts,js,json' --watch 'demo' --watch 'src' ",
+    "dev": "nodemon --exec 'ts-node src/app.ts' --ext 'ts,js,json' --watch 'demo' --watch 'src'",
     "grok": "node scripts/ngrok.js",
-    "start": "ts-node src/server.ts"
+    "start": "ts-node src/server.ts",
+    "build": "tsc"
   },
   "dependencies": {
     "@types/twilio": "^3.19.3",
